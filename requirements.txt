@@ -1,5 +1,5 @@
 streamlit==1.38.0
-opencv-python==4.9.0.80
+opencv-python-headless==4.9.0.80
 easyocr==1.7.2
 ultralytics==8.3.26
 pandas==2.2.2
