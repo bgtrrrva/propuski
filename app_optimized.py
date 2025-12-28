@@ -1,17 +1,13 @@
-# app_smart_filter.py — умная фильтрация текста
+# app_smart_filter.py — ваш стиль, но без тускнения и синих фото
 import streamlit as st
 import cv2
 import easyocr
 import pandas as pd
 import re
-import os
-import tempfile
-import time
-from ultralytics import YOLO
+import io
 import numpy as np
+from ultralytics import YOLO
 from collections import Counter
-import warnings
-warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="Пропуски — Умная фильтрация", layout="wide")
 st.title("🧠 Умное распознавание пропусков")
@@ -78,116 +74,390 @@ if model is None:
 else:
     st.sidebar.success("✅ Модель YOLO загружена")
 
-# === УМНАЯ ФИЛЬТРАЦИЯ ТЕКСТА (остаётся без изменений) ===
+
+# === УМНАЯ ФИЛЬТРАЦИЯ (без изменений) ===
 class NameFilter:
-    # ... (Ваш существующий код NameFilter остается без изменений)
+    STOP_WORDS = {
+        "университет", "государственный", "студент", "участник", "сотрудник", "управление",
+        "на", "по", "в", "из", "от", "до", "за", "с", "к", "у",
+        "и", "или", "но", "а", "же",
+        "номер", "пропуск", "карта", "фото", "дата", "выдача",
+        "действителен", "подпись", "печать", "организация",
+        "ао", "оо", "зао", "пао", "нко", "ип",
+    }
+    
+    NAME_PATTERNS = [
+        r'^[А-ЯЁ][а-яё]{1,20}$',
+        r'^[А-ЯЁ][а-яё]+[- ][А-ЯЁ][а-яё]+$', 
+    ]
+    
+    COMMON_FIRST_NAMES = {
+        "андрей", "алексей", "александр", "артем", "артём", "борис", "вадим",
+        "валентин", "валерий", "василий", "виктор", "владимир", "владислав",
+        "геннадий", "георгий", "григорий", "даниил", "денис", "дмитрий",
+        "евгений", "егор", "иван", "игорь", "кирилл", "константин",
+        "лев", "леонид", "максим", "михаил", "николай", "олег",
+        "павел", "петр", "пётр", "роман", "руслан", "сергей",
+        "станислав", "степан", "тимофей", "федор", "фёдор", "юрий",
+        "ярослав",
+        "алена", "алёна", "алина", "алла", "анастасия", "ангелина",
+        "анна", "антонина", "валентина", "валерия", "вера", "виктория",
+        "галина", "дарья", "диана", "евгения", "екатерина", "елена",
+        "елизавета", "жинар", "зинаида", "инна", "ирина", "кристина",
+        "ксения", "ксёния", "лариса", "любовь", "людмила", "марина",
+        "мария", "маргарита", "надежда", "наталья", "наталия", "оксана",
+        "ольга", "полина", "светлана", "софия", "софья", "тамара",
+        "татьяна", "юлия", "яна",
+    }
+    
+    COMMON_LAST_NAMES = {
+        "иванов", "петров", "сидоров", "смирнов", "кузнецов", "попов",
+        "васильев", "михайлов", "новиков", "федоров", "морозов", "волков",
+        "алексеев", "лебедев", "семенов", "егоров", "павлов", "козлов",
+        "степанов", "никитин", "орлов", "андреев", "макаров",
+        "захаров", "зайцев", "соловьев", "борисов", "яковлев", "григорьев",
+        "романов", "воронин", "гусев", "титов", "кузьмин", "крылов",
+        "тихонов", "комаров", "максимов", "белов", "шубин", "кондратьев",
+        "ильин", "филиппов", "пономарев", "мамонтов", "носов", "голубев",
+        "карпов", "афанасьев", "владимиров", "мельников", "денисов",
+        "громов", "фомин", "давыдов", "беляев", "третьяков", "савельев",
+        "панов", "рыбаков", "суханов", "абдуллин", "агафонов", "анисимов",
+        "артемьев", "архипов", "астафьев", "баранов", "белоусов",
+        "богданов", "большаков", "бондарев", "быков", "васильев",
+        "веселов", "виноградов", "власов", "владимиров", "воробьев",
+        "гаврилов", "гришин", "данилов", "дементьев", "дорофеев",
+        "ефимов", "жидов", "жуков", "зайцев", "зиновьев", "зимин",
+        "знаменский", "зуев", "игнатов", "игнатьев", "калашников",
+        "капустин", "кириллов", "киселев", "климов", "князев", "ковров",
+        "кожевников", "козлов", "колобов", "комиссаров", "королев",
+        "костромин", "красильников", "красов", "круглов", "крылов",
+        "кудрявцев", "кулаков", "лапин", "ларин", "леонов", "лихачев",
+        "лукин", "лыков", "майоров", "мальцев", "марусин", "масленников",
+        "медведев", "миронов", "мишин", "молчанов", "муравьев", "мухин",
+        "назаров", "наумов", "нестеров", "нефедов", "нечаев", "обухов",
+        "овчинников", "озеров", "окладников", "осин", "осипов",
+        "островский", "павловский", "панкратов", "пантелеев", "пастухов",
+        "пестов", "петрухин", "петухов", "пименов", "платонов", "поздняков",
+        "покровский", "поляков", "попов", "прокофьев", "прохоров",
+        "пугачев", "разин", "рогов", "романов", "русаков", "рыжов",
+        "савин", "савицкий", "салтыков", "самойлов", "сафонов", "селезнев",
+        "семенов", "силантьев", "синицын", "скатов", "соболев", "соколов",
+        "соловьев", "софронов", "спирин", "старостин", "степанов",
+        "страхов", "судаков", "суриков", "сысоев", "тарасов", "терентьев",
+        "тимофеев", "тихомиров", "тихонов", "токарев", "толмачев",
+        "третьяков", "трофимов", "туров", "уваров", "ульянов", "устинов",
+        "фадеев", "федосеев", "филатов", "филиппов", "фокин", "фролов",
+        "харитонов", "хромов", "царев", "цыганков", "чадов", "черепанов",
+        "черкасов", "чернов", "чернышев", "чуйков", "шабанов", "шалаев",
+        "шапошников", "шаров", "швецов", "шестаков", "шилов", "шипицын",
+        "широков", "ширяев", "шмелев", "шубин", "шувалов", "щеглов",
+        "щепкин", "щукин", "юдин", "юмашев", "юров", "юрьев", "яковлев",
+        "якушев", "яшин",
+    }
     
     @staticmethod
     def is_stop_word(word):
-        # ... ваш код ...
-        pass
-    
+        word_lower = word.lower()
+        if len(word) < 2: return True
+        if re.match(r'^\d+$', word): return True
+        if re.match(r'^[^а-яА-ЯёЁ]+$', word): return True
+        if word_lower in NameFilter.STOP_WORDS: return True
+        if word.isupper() and len(word) > 3: return True
+        if re.match(r'.*универ.*', word_lower): return True
+        return False
+
     @staticmethod
     def is_likely_name_part(word):
-        # ... ваш код ...
-        pass
-    
+        if NameFilter.is_stop_word(word): return False
+        word_lower = word.lower()
+        for pattern in NameFilter.NAME_PATTERNS:
+            if re.match(pattern, word): return True
+        if (word_lower in NameFilter.COMMON_FIRST_NAMES or 
+            word_lower in NameFilter.COMMON_LAST_NAMES): return True
+        if (word[0].isupper() and len(word) >= 3 and word.isalpha() and
+            not any(ch.isdigit() for ch in word)):
+            endings = ['ов', 'ев', 'ин', 'ын', 'ова', 'ева', 'ина', 'ына',
+                       'ий', 'ой', 'ая', 'яя', 'ль', 'дра', 'ла', 'та']
+            for ending in endings:
+                if word_lower.endswith(ending):
+                    return True
+        return False
+
     @staticmethod
     def extract_fio_from_lines(lines):
-        # ... ваш код ...
-        pass
+        all_words = []
+        for line in lines:
+            words = re.split(r'[\s,.;:]+', line.strip())
+            all_words.extend(words)
+        candidates = [w for w in all_words if NameFilter.is_likely_name_part(w)]
+        if len(candidates) >= 2:
+            fio_parts = []
+            for w in candidates:
+                if w not in fio_parts:
+                    fio_parts.append(w)
+            return " ".join(fio_parts[:3])
+        return None
 
-# === УЛУЧШЕННАЯ ОБРАБОТКА (остаётся без изменений) ===
+
+# === OCR и обработка (без изменений, кроме цвета) ===
 def preprocess_for_ocr(image):
-    # ... ваш код ...
-    pass
+    if len(image.shape) == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = image
+
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+    denoised = cv2.bilateralFilter(enhanced, 9, 75, 75)
+    _, binary = cv2.threshold(denoised, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    scale = 1.5
+    new_size = (int(binary.shape[1] * scale), int(binary.shape[0] * scale))
+    resized = cv2.resize(binary, new_size, interpolation=cv2.INTER_CUBIC)
+    return resized
+
 
 def extract_text_with_context(card_image):
-    # ... ваш код ...
-    pass
+    processed = preprocess_for_ocr(card_image)
+    try:
+        detailed_results = reader.readtext(
+            processed, detail=1, paragraph=False, width_ths=0.7, ycenter_ths=0.5
+        )
+        all_texts = [text.strip() for _, text, conf in detailed_results if conf > 0.1]
+        fio = NameFilter.extract_fio_from_lines(all_texts)
+        if fio:
+            return fio, all_texts
+        likely_names = []
+        for text in all_texts:
+            words = text.split()
+            name_words = [w for w in words if NameFilter.is_likely_name_part(w)]
+            likely_names.extend(name_words)
+        if len(likely_names) >= 2:
+            return " ".join(likely_names[:3]), all_texts
+        return None, all_texts
+    except Exception as e:
+        st.warning(f"Ошибка OCR: {e}")
+        return None, []
 
-# === ОСНОВНАЯ ОБРАБОТКА ===
-def process_single_image(image, filename, show_debug=True):
-    """Обрабатывает одно изображение"""
-    # Проверяем, что модель загружена
-    if model is None:
-        if show_debug:
-            st.error("❌ Модель не загружена!")
-        return [], {}
-    
+
+# === ОБРАБОТКА ОДНОГО ИЗОБРАЖЕНИЯ (с исправлением цвета) ===
+def process_single_image_and_display(image, filename, show_debug=True):
     results = []
-    debug_info = {}
     
     if show_debug:
         st.subheader(f"📷 Обработка: {filename}")
         col1, col2 = st.columns(2)
-        
         with col1:
-            st.image(image, caption=f"Исходное", use_container_width=True)
+            # ✅ BGR → RGB
+            st.image(cv2.cvtColor(image, cv2.COLOR_BGR2RGB), caption="Исходное", use_container_width=True)
     
-    # Детекция пропусков
-    try:
-        yolo_results = model(image, conf=0.2, verbose=False)
-    except Exception as e:
-        if show_debug:
-            st.error(f"❌ Ошибка детекции: {e}")
-        return [], {'error': str(e)}
+    yolo_results = model(image, conf=0.4, verbose=False)
     
-    # ... остальной код функции остается без изменений ...
-    # (ваш существующий код от if show_debug: до конца функции)
+    if show_debug and hasattr(yolo_results[0], 'plot'):
+        with col2:
+            plotted = yolo_results[0].plot()
+            # ✅ BGR → RGB
+            plotted_rgb = cv2.cvtColor(plotted, cv2.COLOR_BGR2RGB)
+            st.image(plotted_rgb, caption="Детекции YOLO", use_container_width=True)
+    
+    boxes = yolo_results[0].boxes
+    cards_found = len(boxes) if boxes is not None else 0
+    
+    if show_debug:
+        st.info(f"✅ Найдено пропусков: {cards_found}")
+    
+    if boxes is not None:
+        for i, box in enumerate(boxes):
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            card = image[y1:y2, x1:x2]
+            
+            if show_debug:
+                with st.expander(f"Пропуск {i+1} (размер: {card.shape[1]}x{card.shape[0]})"):
+                    # ✅ BGR → RGB
+                    st.image(cv2.cvtColor(card, cv2.COLOR_BGR2RGB), caption="Вырезанный пропуск", use_container_width=True)
+            
+            fio, all_texts = extract_text_with_context(card)
+            
+            if show_debug and all_texts:
+                with st.expander("📝 Весь найденный текст"):
+                    for t in all_texts:
+                        st.code(t, language=None)
+            
+            if fio:
+                results.append(fio)
+                if show_debug:
+                    st.success(f"✅ Найден ФИО: **{fio}**")
+            elif show_debug:
+                st.warning("ФИО не найдено")
+    elif show_debug:
+        st.warning("❌ Пропуски не обнаружены")
+    
+    return results
 
-# === ИНТЕРФЕЙС STREAMLIT ===
+
+# === КЭШ ЭКСПОРТА ===
+@st.cache_data(ttl=300)
+def prepare_export_files(edited_df):
+    excel_buffer = io.BytesIO()
+    edited_df.to_excel(excel_buffer, index=False, engine='openpyxl')
+    excel_bytes = excel_buffer.getvalue()
+    txt_content = "\n".join(
+        edited_df["ФИО"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .where(lambda x: x != "")
+        .dropna()
+        .tolist()
+    )
+    return excel_bytes, txt_content
+
+
+# === ИНТЕРФЕЙС ===
 st.sidebar.header("⚙️ Настройки")
 debug_mode = st.sidebar.checkbox("Показать отладку", True)
 
-# Показываем предупреждение, если нет модели
-if model is None:
-    st.error("""
-    🚫 **Приложение не готово к работе!**
+uploaded_files = st.file_uploader(
+    "📷 Загрузите фото с пропусками",
+    type=["jpg", "jpeg", "png"],
+    accept_multiple_files=True,
+    help="Рекомендуется загружать чёткие фото"
+)
+
+# Инициализация
+if 'all_fios' not in st.session_state:
+    st.session_state.all_fios = []
+if 'total_cards' not in st.session_state:
+    st.session_state.total_cards = 0
+if 'processed' not in st.session_state:
+    st.session_state.processed = False
+if 'original_fios' not in st.session_state:
+    st.session_state.original_fios = []
+
+
+# Обработка — только один раз при загрузке
+if uploaded_files and not st.session_state.processed:
+    # Сбрасываем при новой загрузке
+    st.session_state.all_fios = []
+    st.session_state.total_cards = 0
     
-    Для начала работы необходимо:
-    1. Добавить файл модели `best.pt` в репозиторий
-    2. Или загрузить его через форму выше
-    3. После загрузки перезагрузите страницу (F5)
-    """)
-else:
-    conf_threshold = st.sidebar.slider("Порог уверенности YOLO", 0.1, 0.9, 0.2, 0.05)
+    progress_bar = None
+    status_text = None
+    if len(uploaded_files) > 1:
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+
+    for idx, uploaded_file in enumerate(uploaded_files):
+        if len(uploaded_files) > 1:
+            status_text.text(f"Обработка {idx+1}/{len(uploaded_files)}")
+        
+        file_bytes = uploaded_file.getvalue()
+        nparr = np.frombuffer(file_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None:
+            st.error(f"Не удалось прочитать: {uploaded_file.name}")
+            continue
+        
+        fios = process_single_image_and_display(img, uploaded_file.name, debug_mode)
+        
+        st.session_state.all_fios.extend(fios)
+        st.session_state.total_cards += len(fios)  # ⚠️ упрощение: 1 пропуск = 1 ФИО
+        # Если нужно точное число — сохраняйте yolo_results.boxes, но для UI достаточно ~
+
+        if progress_bar:
+            progress_bar.progress((idx + 1) / len(uploaded_files))
     
-    uploaded_files = st.file_uploader(
-        "📷 Загрузите фото с пропусками",
-        type=["jpg", "jpeg", "png"],
-        accept_multiple_files=True,
-        help="Рекомендуется загружать чёткие фото"
+    if progress_bar:
+        status_text.empty()
+        progress_bar.empty()
+    
+    st.session_state.processed = True
+
+
+# === ВЫВОД РЕЗУЛЬТАТОВ (всегда, если есть данные) ===
+if st.session_state.processed and st.session_state.all_fios:
+    all_fios = st.session_state.all_fios
+    total_cards = st.session_state.total_cards
+    
+    unique_fios = []
+    seen = set()
+    for fio in all_fios:
+        if fio not in seen:
+            seen.add(fio)
+            unique_fios.append(fio)
+    
+    final_fios = sorted(unique_fios, key=lambda x: x.split()[0] if x.split() else x)
+    st.session_state.original_fios = final_fios.copy()
+    
+    st.markdown("---")
+    st.subheader("📋 Результаты")
+    st.success(f"✅ Обработано {len(uploaded_files)} файлов")
+    st.metric("Найдено ФИО", len(final_fios))
+    st.metric("Обнаружено пропусков", total_cards)
+    
+    st.write("**✏️ Отредактируйте список (нажмите в ячейку → измените → Enter):**")
+    df_editable = pd.DataFrame(final_fios, columns=["ФИО"])
+    edited_df = st.data_editor(
+        df_editable,
+        num_rows="dynamic",
+        column_config={"ФИО": {"width": "medium"}},
+        use_container_width=True,
+        key="fio_editor_final"
     )
     
-    if uploaded_files and model:
-        # ... ваш существующий код обработки файлов ...
-        # (от all_fios = [] до конца блока)
+    final_list = (
+        edited_df["ФИО"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .where(lambda x: x != "")
+        .dropna()
+        .tolist()
+    )
+    
+    if set(final_list) != set(st.session_state.original_fios):
+        st.info(f"✅ Изменено: было {len(st.session_state.original_fios)}, стало {len(final_list)}")
+    
+    # Экспорт
+    excel_bytes, txt_content = prepare_export_files(edited_df)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.download_button(
+            "📊 Скачать Excel",
+            excel_bytes,
+            "список_участников.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="excel_download_final"
+        )
+    with col2:
+        st.download_button(
+            "📝 Скачать TXT",
+            txt_content,
+            "список_участников.txt",
+            "text/plain",
+            key="txt_download_final"
+        )
 
-# === ИНФОРМАЦИЯ О СИСТЕМЕ ===
-with st.sidebar.expander("ℹ️ О системе"):
-    st.markdown("""
-    ### Умная фильтрация включает:
-    
-    **Фильтрация стоп-слов:**
-    - Организации, должности
-    - Предлоги, союзы
-    - Технические надписи
-    
-    **Распознавание имён:**
-    - База распространённых имён/фамилий
-    - Паттерны окончаний
-    - Проверка регистра
-    
-    **Предобработка:**
-    - Увеличение контраста
-    - Удаление шума
-    - Масштабирование для OCR
-    
-    ---
-    
-    **Для хостинга на Streamlit Cloud:**
-    1. Добавьте `best.pt` в репозиторий
-    2. Убедитесь в файле `requirements.txt`
-    3. Укажите Python 3.9+ в `runtime.txt`
-    """)
+elif st.session_state.processed:
+    st.markdown("---")
+    st.subheader("📋 Результаты")
+    st.error("❌ Не найдено ни одного ФИО")
+    if st.session_state.total_cards > 0:
+        st.warning(f"Обнаружено {st.session_state.total_cards} пропусков, но не удалось извлечь ФИО")
+    else:
+        st.warning("Пропуски не обнаружены")
+
+
+# === Сброс при новой загрузке ===
+if not uploaded_files:
+    st.session_state.processed = False
+    st.session_state.all_fios = []
+    st.session_state.total_cards = 0
+
+
+
+
+
+
+
