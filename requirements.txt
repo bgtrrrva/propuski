@@ -2,8 +2,6 @@ streamlit==1.36.0
 opencv-python-headless==4.9.0.80
 ultralytics==8.2.0
 easyocr==1.7.1
-pandas==2.1.4          # ← ИСПРАВЛЕНО: стабильная версия с wheel
+pandas==2.1.4
 numpy==1.26.4
 openpyxl==3.1.5
-torch==2.2.2
-torchvision==0.17.2
