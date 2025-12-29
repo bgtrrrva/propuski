@@ -1,7 +1,14 @@
+--only-binary=all
+
 streamlit==1.36.0
-opencv-python-headless==4.10.0.84
 ultralytics==8.3.18
 easyocr==1.7.1
 pandas==2.2.3
 numpy==2.2.4
 openpyxl==3.1.5
+
+# Явно исключаем конфликтующую GUI-версию
+opencv-python-headless==4.8.1.78
+opencv-python @ https://none.none/opencv-python-0.0.0.tar.gz ; python_version >= '0'
+
+# ← Это хак: перенаправляет pip к несуществующему URL для opencv-python → он игнорируется
