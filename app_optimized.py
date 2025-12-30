@@ -1,9 +1,19 @@
-# app_optimized.py
 import os
 import sys
 
+# ПРИНУДИТЕЛЬНО указываем системе использовать headless-версию
+# Удаляем полноценную версию из sys.modules, если она уже загружена
+if 'cv2' in sys.modules:
+    del sys.modules['cv2']
+
+# Явно указываем использовать headless-версию
+os.environ['OPENCV_PACKAGE'] = 'opencv-python-headless'
+
 import cv2
 cv2.setNumThreads(1)
+
+# Только после этого — остальные импорты
+import streamlit as st
 
 # Только после этого — остальные импорты
 import streamlit as st
