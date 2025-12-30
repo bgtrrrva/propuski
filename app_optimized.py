@@ -31,7 +31,7 @@ st.title("🧠 Умное распознавание пропусков")
 # === КЕШИ ===
 @st.cache_resource
 def load_model():
-    model_path = '/Users/amina.bagatyrova/Desktop/Моё/Пропуски/runs/detect/propuska_detector5/weights/best.pt'  # ← замените на ваш путь
+    model_path = 'best.pt'  # ← замените на ваш путь
     return YOLO(model_path)
 
 @st.cache_resource
