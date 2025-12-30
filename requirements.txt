@@ -7,8 +7,8 @@ pandas==2.2.3
 numpy==2.2.4
 openpyxl==3.1.5
 
-# Явно исключаем конфликтующую GUI-версию
+# Сначала ставим headless
 opencv-python-headless==4.8.1.78
-opencv-python @ https://none.none/opencv-python-0.0.0.tar.gz ; python_version >= '0'
 
-# ← Это хак: перенаправляет pip к несуществующему URL для opencv-python → он игнорируется
+# Затем ПЕРЕУСТАНАВЛИВАЕМ, чтобы гарантировать замену gui-версии (если появилась)
+--force-reinstall opencv-python-headless==4.8.1.78
