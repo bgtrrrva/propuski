@@ -4,6 +4,7 @@ easyocr==1.7.1
 ultralytics==8.3.18
 pandas==2.2.3
 openpyxl==3.1.5
-numpy==2.2.4
-torch==2.9.1
-torchvision==0.24.1
+numpy==1.26.0  # Используем стабильную версию
+torch==2.3.0
+torchvision==0.18.0
+[file content end]
