@@ -1,5 +1,21 @@
-# app.py — для Streamlit Cloud (мобильная версия, без синих фото)
+# app_optimized.py
+
 import streamlit as st
+
+# ✅ ПРИНУДИТЕЛЬНО УДАЛЯЕМ КОНФЛИКТУЮЩИЙ opencv-python (если установлен)
+import subprocess
+import sys
+import pkg_resources
+
+try:
+    pkg_resources.get_distribution("opencv-python")
+    # Удаляем GUI-версию, если она есть
+    subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "opencv-python"])
+    st.toast("✅ Удалена конфликтующая версия opencv-python", icon="🛠️")
+except pkg_resources.DistributionNotFound:
+    pass  # opencv-python не установлен — отлично
+
+# Теперь импортируем cv2 — только headless-версия останется
 import cv2
 import easyocr
 import pandas as pd
