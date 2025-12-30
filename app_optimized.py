@@ -1,21 +1,21 @@
 import os
 import sys
 
-# ПРИНУДИТЕЛЬНО указываем системе использовать headless-версию
-# Удаляем полноценную версию из sys.modules, если она уже загружена
+# Удаляем cv2 из sys.modules, если он уже загружен
 if 'cv2' in sys.modules:
     del sys.modules['cv2']
 
-# Явно указываем использовать headless-версию
-os.environ['OPENCV_PACKAGE'] = 'opencv-python-headless'
+# Устанавливаем переменные окружения для использования CPU
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+os.environ['OPENCV_VIDEOIO_PRIORITY_MSMF'] = '0'
 
+# Принудительно импортируем cv2
 import cv2
-cv2.setNumThreads(1)
 
-# Только после этого — остальные импорты
-import streamlit as st
+# Отключаем многопоточность OpenCV для облака
+cv2.setNumThreads(0)
+cv2.ocl.setUseOpenCL(False)
 
-# Только после этого — остальные импорты
 import streamlit as st
 import easyocr
 import pandas as pd
@@ -23,7 +23,6 @@ import re
 import io
 import numpy as np
 from ultralytics import YOLO
-from collections import Counter
 
 st.set_page_config(page_title="Пропуски — Умная фильтрация", layout="wide")
 st.title("🧠 Умное распознавание пропусков")
@@ -31,53 +30,51 @@ st.title("🧠 Умное распознавание пропусков")
 # === КЕШИ ===
 @st.cache_resource
 def load_model():
-    import os
-    
     model_path = 'best.pt'
     
     if not os.path.exists(model_path):
-        # Создаем временное сообщение в sidebar для отладки
-        st.sidebar.error("Файл модели не найден!")
-        
-        # Проверяем содержимое директории
+        st.sidebar.error("❌ Файл модели 'best.pt' не найден!")
+        # Проверяем текущую директорию
         import subprocess
         try:
             result = subprocess.run(['ls', '-la'], capture_output=True, text=True)
-            st.sidebar.code(result.stdout)
+            st.sidebar.text("Содержимое директории:")
+            st.sidebar.code(result.stdout[:500])  # Показываем первые 500 символов
         except:
             pass
-        
         return None
     
     try:
-        # Явно указываем использовать локальный файл
-        from ultralytics import YOLO
-        
-        with st.spinner('🔄 Загрузка локальной модели YOLO...'):
-            # Пробуем с аргументом _callbacks для предотвращения загрузки
+        # Явно указываем использовать CPU
+        with st.spinner('🔄 Загрузка модели YOLO...'):
             model = YOLO(model_path, task='detect')
         
-        # Проверяем, что модель загрузилась правильно
+        # Проверяем, что модель загрузилась
         if hasattr(model, 'names'):
-            st.success(f"✅ Модель загружена! Классы: {len(model.names)}")
+            st.sidebar.success(f"✅ Модель загружена! Классы: {len(model.names)}")
         else:
-            st.warning("⚠️ Модель загружена, но не удалось проверить классы")
+            st.sidebar.warning("⚠️ Модель загружена, но не удалось проверить классы")
         
         return model
         
     except Exception as e:
-        st.error(f"❌ Критическая ошибка загрузки модели: {str(e)}")
+        st.sidebar.error(f"❌ Ошибка загрузки модели: {str(e)}")
         return None
 
 @st.cache_resource
 def load_ocr():
     return easyocr.Reader(['ru'], gpu=False)
 
+# Загружаем модели
 model = load_model()
 reader = load_ocr()
 
+# Проверяем, что модель загрузилась
+if model is None:
+    st.error("⚠️ Модель не загружена! Убедитесь, что файл 'best.pt' находится в корневой директории.")
+    st.stop()
 
-# === УМНАЯ ФИЛЬТРАЦИЯ (без изменений) ===
+# === УМНАЯ ФИЛЬТРАЦИЯ ===
 class NameFilter:
     STOP_WORDS = {
         "университет", "государственный", "студент", "участник", "сотрудник", "управление",
@@ -201,7 +198,7 @@ class NameFilter:
         return None
 
 
-# === OCR и обработка (без изменений, кроме цвета) ===
+# === OCR и обработка ===
 def preprocess_for_ocr(image):
     if len(image.shape) == 3:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -242,7 +239,7 @@ def extract_text_with_context(card_image):
         return None, []
 
 
-# === ОБРАБОТКА ОДНОГО ИЗОБРАЖЕНИЯ (с исправлением цвета) ===
+# === ОБРАБОТКА ОДНОГО ИЗОБРАЖЕНИЯ ===
 def process_single_image_and_display(image, filename, show_debug=True):
     results = []
     
@@ -250,17 +247,40 @@ def process_single_image_and_display(image, filename, show_debug=True):
         st.subheader(f"📷 Обработка: {filename}")
         col1, col2 = st.columns(2)
         with col1:
-            # ✅ BGR → RGB
-            st.image(cv2.cvtColor(image, cv2.COLOR_BGR2RGB), caption="Исходное", use_container_width=True)
+            try:
+                # Проверяем, что изображение корректное
+                if image is None or image.size == 0:
+                    st.error("Ошибка: изображение пустое или некорректное")
+                    return results
+                
+                # Конвертируем BGR в RGB для отображения в Streamlit
+                if len(image.shape) == 3 and image.shape[2] == 3:
+                    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                else:
+                    rgb_image = image
+                
+                st.image(rgb_image, caption="Исходное", use_container_width=True)
+            except Exception as e:
+                st.error(f"Ошибка отображения изображения: {e}")
     
-    yolo_results = model(image, conf=0.4, verbose=False)
+    try:
+        yolo_results = model(image, conf=0.4, verbose=False)
+    except Exception as e:
+        st.error(f"Ошибка YOLO: {e}")
+        return results
     
     if show_debug and hasattr(yolo_results[0], 'plot'):
         with col2:
-            plotted = yolo_results[0].plot()
-            # ✅ BGR → RGB
-            plotted_rgb = cv2.cvtColor(plotted, cv2.COLOR_BGR2RGB)
-            st.image(plotted_rgb, caption="Детекции YOLO", use_container_width=True)
+            try:
+                plotted = yolo_results[0].plot()
+                if plotted is not None and plotted.size > 0:
+                    if len(plotted.shape) == 3 and plotted.shape[2] == 3:
+                        plotted_rgb = cv2.cvtColor(plotted, cv2.COLOR_BGR2RGB)
+                    else:
+                        plotted_rgb = plotted
+                    st.image(plotted_rgb, caption="Детекции YOLO", use_container_width=True)
+            except Exception as e:
+                st.warning(f"Не удалось отобразить детекции: {e}")
     
     boxes = yolo_results[0].boxes
     cards_found = len(boxes) if boxes is not None else 0
@@ -271,12 +291,24 @@ def process_single_image_and_display(image, filename, show_debug=True):
     if boxes is not None:
         for i, box in enumerate(boxes):
             x1, y1, x2, y2 = map(int, box.xyxy[0])
+            
+            # Проверяем границы
+            if x1 < 0 or y1 < 0 or x2 > image.shape[1] or y2 > image.shape[0]:
+                st.warning(f"Пропуск {i+1}: некорректные координаты")
+                continue
+                
             card = image[y1:y2, x1:x2]
             
             if show_debug:
                 with st.expander(f"Пропуск {i+1} (размер: {card.shape[1]}x{card.shape[0]})"):
-                    # ✅ BGR → RGB
-                    st.image(cv2.cvtColor(card, cv2.COLOR_BGR2RGB), caption="Вырезанный пропуск", use_container_width=True)
+                    try:
+                        if len(card.shape) == 3 and card.shape[2] == 3:
+                            card_rgb = cv2.cvtColor(card, cv2.COLOR_BGR2RGB)
+                        else:
+                            card_rgb = card
+                        st.image(card_rgb, caption="Вырезанный пропуск", use_container_width=True)
+                    except Exception as e:
+                        st.error(f"Ошибка отображения пропуска: {e}")
             
             fio, all_texts = extract_text_with_context(card)
             
@@ -319,6 +351,10 @@ def prepare_export_files(edited_df):
 st.sidebar.header("⚙️ Настройки")
 debug_mode = st.sidebar.checkbox("Показать отладку", True)
 
+# Информация о загруженных зависимостях
+st.sidebar.info(f"OpenCV версия: {cv2.__version__}")
+st.sidebar.info(f"NumPy версия: {np.__version__}")
+
 uploaded_files = st.file_uploader(
     "📷 Загрузите фото с пропусками",
     type=["jpg", "jpeg", "png"],
@@ -326,7 +362,7 @@ uploaded_files = st.file_uploader(
     help="Рекомендуется загружать чёткие фото"
 )
 
-# Инициализация
+# Инициализация session_state
 if 'all_fios' not in st.session_state:
     st.session_state.all_fios = []
 if 'total_cards' not in st.session_state:
@@ -336,10 +372,9 @@ if 'processed' not in st.session_state:
 if 'original_fios' not in st.session_state:
     st.session_state.original_fios = []
 
-
-# Обработка — только один раз при загрузке
+# Обработка файлов
 if uploaded_files and not st.session_state.processed:
-    # Сбрасываем при новой загрузке
+    # Сбрасываем состояние
     st.session_state.all_fios = []
     st.session_state.total_cards = 0
     
@@ -353,19 +388,23 @@ if uploaded_files and not st.session_state.processed:
         if len(uploaded_files) > 1:
             status_text.text(f"Обработка {idx+1}/{len(uploaded_files)}")
         
-        file_bytes = uploaded_file.getvalue()
-        nparr = np.frombuffer(file_bytes, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        if img is None:
-            st.error(f"Не удалось прочитать: {uploaded_file.name}")
-            continue
+        try:
+            file_bytes = uploaded_file.getvalue()
+            nparr = np.frombuffer(file_bytes, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            
+            if img is None:
+                st.error(f"Не удалось прочитать: {uploaded_file.name}")
+                continue
+            
+            fios = process_single_image_and_display(img, uploaded_file.name, debug_mode)
+            
+            st.session_state.all_fios.extend(fios)
+            st.session_state.total_cards += len(fios)
+            
+        except Exception as e:
+            st.error(f"Ошибка обработки файла {uploaded_file.name}: {e}")
         
-        fios = process_single_image_and_display(img, uploaded_file.name, debug_mode)
-        
-        st.session_state.all_fios.extend(fios)
-        st.session_state.total_cards += len(fios)  # ⚠️ упрощение: 1 пропуск = 1 ФИО
-        # Если нужно точное число — сохраняйте yolo_results.boxes, но для UI достаточно ~
-
         if progress_bar:
             progress_bar.progress((idx + 1) / len(uploaded_files))
     
@@ -375,12 +414,12 @@ if uploaded_files and not st.session_state.processed:
     
     st.session_state.processed = True
 
-
-# === ВЫВОД РЕЗУЛЬТАТОВ (всегда, если есть данные) ===
+# === ВЫВОД РЕЗУЛЬТАТОВ ===
 if st.session_state.processed and st.session_state.all_fios:
     all_fios = st.session_state.all_fios
     total_cards = st.session_state.total_cards
     
+    # Удаляем дубликаты с сохранением порядка
     unique_fios = []
     seen = set()
     for fio in all_fios:
@@ -450,9 +489,9 @@ elif st.session_state.processed:
     else:
         st.warning("Пропуски не обнаружены")
 
-
 # === Сброс при новой загрузке ===
 if not uploaded_files:
     st.session_state.processed = False
     st.session_state.all_fios = []
     st.session_state.total_cards = 0
+    st.session_state.original_fios = []
