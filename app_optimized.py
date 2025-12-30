@@ -31,8 +31,43 @@ st.title("🧠 Умное распознавание пропусков")
 # === КЕШИ ===
 @st.cache_resource
 def load_model():
-    model_path = 'best.pt'  # ← замените на ваш путь
-    return YOLO(model_path)
+    import os
+    
+    model_path = 'best.pt'
+    
+    if not os.path.exists(model_path):
+        # Создаем временное сообщение в sidebar для отладки
+        st.sidebar.error("Файл модели не найден!")
+        
+        # Проверяем содержимое директории
+        import subprocess
+        try:
+            result = subprocess.run(['ls', '-la'], capture_output=True, text=True)
+            st.sidebar.code(result.stdout)
+        except:
+            pass
+        
+        return None
+    
+    try:
+        # Явно указываем использовать локальный файл
+        from ultralytics import YOLO
+        
+        with st.spinner('🔄 Загрузка локальной модели YOLO...'):
+            # Пробуем с аргументом _callbacks для предотвращения загрузки
+            model = YOLO(model_path, task='detect')
+        
+        # Проверяем, что модель загрузилась правильно
+        if hasattr(model, 'names'):
+            st.success(f"✅ Модель загружена! Классы: {len(model.names)}")
+        else:
+            st.warning("⚠️ Модель загружена, но не удалось проверить классы")
+        
+        return model
+        
+    except Exception as e:
+        st.error(f"❌ Критическая ошибка загрузки модели: {str(e)}")
+        return None
 
 @st.cache_resource
 def load_ocr():
