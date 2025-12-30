@@ -25,49 +25,14 @@ import numpy as np
 from ultralytics import YOLO
 from collections import Counter
 
-st.set_page_config(page_title="Пропуски — Умная фильтрация", layout="wide")
+st.set_page_config(page_title="Пропуски — Умная фильтрация", layout="centered")  # ← layout="centered" лучше для мобильных
 st.title("🧠 Умное распознавание пропусков")
 
 # === КЕШИ ===
 @st.cache_resource
 def load_model():
-    import os
-    
-    model_path = 'best.pt'
-    
-    if not os.path.exists(model_path):
-        # Создаем временное сообщение в sidebar для отладки
-        st.sidebar.error("Файл модели не найден!")
-        
-        # Проверяем содержимое директории
-        import subprocess
-        try:
-            result = subprocess.run(['ls', '-la'], capture_output=True, text=True)
-            st.sidebar.code(result.stdout)
-        except:
-            pass
-        
-        return None
-    
-    try:
-        # Явно указываем использовать локальный файл
-        from ultralytics import YOLO
-        
-        with st.spinner('🔄 Загрузка локальной модели YOLO...'):
-            # Пробуем с аргументом _callbacks для предотвращения загрузки
-            model = YOLO(model_path, task='detect')
-        
-        # Проверяем, что модель загрузилась правильно
-        if hasattr(model, 'names'):
-            st.success(f"✅ Модель загружена! Классы: {len(model.names)}")
-        else:
-            st.warning("⚠️ Модель загружена, но не удалось проверить классы")
-        
-        return model
-        
-    except Exception as e:
-        st.error(f"❌ Критическая ошибка загрузки модели: {str(e)}")
-        return None
+    model_path = 'best.pt'  # ✅ Исправлено: относительный путь!
+    return YOLO(model_path)
 
 @st.cache_resource
 def load_ocr():
@@ -77,7 +42,7 @@ model = load_model()
 reader = load_ocr()
 
 
-# === УМНАЯ ФИЛЬТРАЦИЯ (без изменений) ===
+# === УМНАЯ ФИЛЬТРАЦИЯ ===
 class NameFilter:
     STOP_WORDS = {
         "университет", "государственный", "студент", "участник", "сотрудник", "управление",
@@ -112,7 +77,7 @@ class NameFilter:
         "татьяна", "юлия", "яна",
     }
     
-    COMMON_LAST_NAMES = {
+    COMMON_LAST_NAMES = { 
         "иванов", "петров", "сидоров", "смирнов", "кузнецов", "попов",
         "васильев", "михайлов", "новиков", "федоров", "морозов", "волков",
         "алексеев", "лебедев", "семенов", "егоров", "павлов", "козлов",
@@ -156,7 +121,7 @@ class NameFilter:
         "щепкин", "щукин", "юдин", "юмашев", "юров", "юрьев", "яковлев",
         "якушев", "яшин",
     }
-    
+
     @staticmethod
     def is_stop_word(word):
         word_lower = word.lower()
@@ -201,7 +166,7 @@ class NameFilter:
         return None
 
 
-# === OCR и обработка (без изменений, кроме цвета) ===
+# === OCR и обработка ===
 def preprocess_for_ocr(image):
     if len(image.shape) == 3:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -247,10 +212,10 @@ def process_single_image_and_display(image, filename, show_debug=True):
     results = []
     
     if show_debug:
-        st.subheader(f"📷 Обработка: {filename}")
+        st.subheader(f"📷 {filename}")
         col1, col2 = st.columns(2)
         with col1:
-            # ✅ BGR → RGB
+            # ✅ BGR → RGB (фото не синие!)
             st.image(cv2.cvtColor(image, cv2.COLOR_BGR2RGB), caption="Исходное", use_container_width=True)
     
     yolo_results = model(image, conf=0.4, verbose=False)
@@ -260,39 +225,33 @@ def process_single_image_and_display(image, filename, show_debug=True):
             plotted = yolo_results[0].plot()
             # ✅ BGR → RGB
             plotted_rgb = cv2.cvtColor(plotted, cv2.COLOR_BGR2RGB)
-            st.image(plotted_rgb, caption="Детекции YOLO", use_container_width=True)
+            st.image(plotted_rgb, caption="Детекции", use_container_width=True)
     
     boxes = yolo_results[0].boxes
     cards_found = len(boxes) if boxes is not None else 0
     
     if show_debug:
-        st.info(f"✅ Найдено пропусков: {cards_found}")
-    
+        st.caption(f"📦 Найдено: {cards_found} пропусков")
+
     if boxes is not None:
         for i, box in enumerate(boxes):
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             card = image[y1:y2, x1:x2]
             
             if show_debug:
-                with st.expander(f"Пропуск {i+1} (размер: {card.shape[1]}x{card.shape[0]})"):
-                    # ✅ BGR → RGB
-                    st.image(cv2.cvtColor(card, cv2.COLOR_BGR2RGB), caption="Вырезанный пропуск", use_container_width=True)
+                with st.expander(f"Пропуск {i+1}"):
+                    st.image(cv2.cvtColor(card, cv2.COLOR_BGR2RGB), caption="Вырезанный", use_container_width=True)
             
             fio, all_texts = extract_text_with_context(card)
-            
-            if show_debug and all_texts:
-                with st.expander("📝 Весь найденный текст"):
-                    for t in all_texts:
-                        st.code(t, language=None)
             
             if fio:
                 results.append(fio)
                 if show_debug:
-                    st.success(f"✅ Найден ФИО: **{fio}**")
+                    st.success(f"✅ {fio}")
             elif show_debug:
                 st.warning("ФИО не найдено")
     elif show_debug:
-        st.warning("❌ Пропуски не обнаружены")
+        st.warning("❌ Пропуски не найдены")
     
     return results
 
@@ -317,142 +276,90 @@ def prepare_export_files(edited_df):
 
 # === ИНТЕРФЕЙС ===
 st.sidebar.header("⚙️ Настройки")
-debug_mode = st.sidebar.checkbox("Показать отладку", True)
+debug_mode = st.sidebar.checkbox("Показать отладку", False)  # ← по умолчанию False — чище на телефоне
 
 uploaded_files = st.file_uploader(
-    "📷 Загрузите фото с пропусками",
+    "📸 Загрузите фото пропусков",
     type=["jpg", "jpeg", "png"],
     accept_multiple_files=True,
-    help="Рекомендуется загружать чёткие фото"
+    help="Рекомендуется: чёткие фото, пропуски крупно"
 )
 
 # Инициализация
 if 'all_fios' not in st.session_state:
     st.session_state.all_fios = []
-if 'total_cards' not in st.session_state:
-    st.session_state.total_cards = 0
 if 'processed' not in st.session_state:
     st.session_state.processed = False
-if 'original_fios' not in st.session_state:
-    st.session_state.original_fios = []
 
-
-# Обработка — только один раз при загрузке
+# Обработка — один раз
 if uploaded_files and not st.session_state.processed:
-    # Сбрасываем при новой загрузке
     st.session_state.all_fios = []
-    st.session_state.total_cards = 0
     
-    progress_bar = None
-    status_text = None
-    if len(uploaded_files) > 1:
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-
     for idx, uploaded_file in enumerate(uploaded_files):
-        if len(uploaded_files) > 1:
-            status_text.text(f"Обработка {idx+1}/{len(uploaded_files)}")
-        
         file_bytes = uploaded_file.getvalue()
         nparr = np.frombuffer(file_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if img is None:
-            st.error(f"Не удалось прочитать: {uploaded_file.name}")
+            st.error(f"❗ Не удалось прочитать: {uploaded_file.name}")
             continue
         
         fios = process_single_image_and_display(img, uploaded_file.name, debug_mode)
-        
         st.session_state.all_fios.extend(fios)
-        st.session_state.total_cards += len(fios)  # ⚠️ упрощение: 1 пропуск = 1 ФИО
-        # Если нужно точное число — сохраняйте yolo_results.boxes, но для UI достаточно ~
-
-        if progress_bar:
-            progress_bar.progress((idx + 1) / len(uploaded_files))
-    
-    if progress_bar:
-        status_text.empty()
-        progress_bar.empty()
     
     st.session_state.processed = True
 
-
-# === ВЫВОД РЕЗУЛЬТАТОВ (всегда, если есть данные) ===
-if st.session_state.processed and st.session_state.all_fios:
+# === ВЫВОД — всегда, если есть данные ===
+if st.session_state.processed:
     all_fios = st.session_state.all_fios
-    total_cards = st.session_state.total_cards
     
-    unique_fios = []
-    seen = set()
-    for fio in all_fios:
-        if fio not in seen:
-            seen.add(fio)
-            unique_fios.append(fio)
-    
-    final_fios = sorted(unique_fios, key=lambda x: x.split()[0] if x.split() else x)
-    st.session_state.original_fios = final_fios.copy()
-    
-    st.markdown("---")
-    st.subheader("📋 Результаты")
-    st.success(f"✅ Обработано {len(uploaded_files)} файлов")
-    st.metric("Найдено ФИО", len(final_fios))
-    st.metric("Обнаружено пропусков", total_cards)
-    
-    st.write("**✏️ Отредактируйте список (нажмите в ячейку → измените → Enter):**")
-    df_editable = pd.DataFrame(final_fios, columns=["ФИО"])
-    edited_df = st.data_editor(
-        df_editable,
-        num_rows="dynamic",
-        column_config={"ФИО": {"width": "medium"}},
-        use_container_width=True,
-        key="fio_editor_final"
-    )
-    
-    final_list = (
-        edited_df["ФИО"]
-        .dropna()
-        .astype(str)
-        .str.strip()
-        .where(lambda x: x != "")
-        .dropna()
-        .tolist()
-    )
-    
-    if set(final_list) != set(st.session_state.original_fios):
-        st.info(f"✅ Изменено: было {len(st.session_state.original_fios)}, стало {len(final_list)}")
-    
-    # Экспорт
-    excel_bytes, txt_content = prepare_export_files(edited_df)
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.download_button(
-            "📊 Скачать Excel",
-            excel_bytes,
-            "список_участников.xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="excel_download_final"
+    if all_fios:
+        # Уникальные, без дублей
+        unique_fios = []
+        seen = set()
+        for fio in all_fios:
+            if fio not in seen:
+                seen.add(fio)
+                unique_fios.append(fio)
+        
+        st.markdown("---")
+        st.subheader("📋 Результаты")
+        st.info(f"✅ Найдено: {len(unique_fios)} ФИО")
+        
+        df_editable = pd.DataFrame(unique_fios, columns=["ФИО"])
+        edited_df = st.data_editor(
+            df_editable,
+            num_rows="dynamic",
+            use_container_width=True,
+            key="fio_editor"
         )
-    with col2:
-        st.download_button(
-            "📝 Скачать TXT",
-            txt_content,
-            "список_участников.txt",
-            "text/plain",
-            key="txt_download_final"
-        )
-
-elif st.session_state.processed:
-    st.markdown("---")
-    st.subheader("📋 Результаты")
-    st.error("❌ Не найдено ни одного ФИО")
-    if st.session_state.total_cards > 0:
-        st.warning(f"Обнаружено {st.session_state.total_cards} пропусков, но не удалось извлечь ФИО")
+        
+        final_list = edited_df["ФИО"].dropna().astype(str).str.strip()
+        final_list = final_list[final_list != ""].tolist()
+        
+        # Экспорт
+        excel_bytes, txt_content = prepare_export_files(edited_df)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.download_button(
+                "📥 Excel",
+                excel_bytes,
+                "участники.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        with col2:
+            st.download_button(
+                "📥 TXT",
+                txt_content,
+                "участники.txt",
+                "text/plain"
+            )
+    
     else:
-        st.warning("Пропуски не обнаружены")
+        st.markdown("---")
+        st.subheader("📋 Результаты")
+        st.error("❌ Не найдено ни одного ФИО")
 
-
-# === Сброс при новой загрузке ===
+# Сброс при новой загрузке
 if not uploaded_files:
     st.session_state.processed = False
-    st.session_state.all_fios = []
-    st.session_state.total_cards = 0
