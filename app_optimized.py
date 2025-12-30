@@ -1,22 +1,18 @@
 # app_optimized.py
-
-import streamlit as st
-
-# ✅ ПРИНУДИТЕЛЬНО УДАЛЯЕМ КОНФЛИКТУЮЩИЙ opencv-python (если установлен)
-import subprocess
+import os
 import sys
-import pkg_resources
 
-try:
-    pkg_resources.get_distribution("opencv-python")
-    # Удаляем GUI-версию, если она есть
-    subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "opencv-python"])
-    st.toast("✅ Удалена конфликтующая версия opencv-python", icon="🛠️")
-except pkg_resources.DistributionNotFound:
-    pass  # opencv-python не установлен — отлично
+# ✅ Гарантируем, что импортируется ТОЛЬКО headless-версия
+# Обходим автоматическое подключение GUI-версии
+os.environ["OPENCV_VIDEOIO_PRIORITY_MSMF"] = "0"
+os.environ["OPENCV_VIDEOIO_PRIORITY_FFMPEG"] = "0"
 
-# Теперь импортируем cv2 — только headless-версия останется
-import cv2
+# Принудительно загружаем headless-модуль
+import cv2  # ← импортируем ДО любых других библиотек, использующих OpenCV
+cv2.setNumThreads(1)  # снижаем нагрузку
+
+# Только после этого — остальные импорты
+import streamlit as st
 import easyocr
 import pandas as pd
 import re
