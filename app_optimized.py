@@ -2,14 +2,8 @@
 import os
 import sys
 
-# ✅ Гарантируем, что импортируется ТОЛЬКО headless-версия
-# Обходим автоматическое подключение GUI-версии
-os.environ["OPENCV_VIDEOIO_PRIORITY_MSMF"] = "0"
-os.environ["OPENCV_VIDEOIO_PRIORITY_FFMPEG"] = "0"
-
-# Принудительно загружаем headless-модуль
-import cv2  # ← импортируем ДО любых других библиотек, использующих OpenCV
-cv2.setNumThreads(1)  # снижаем нагрузку
+import cv2
+cv2.setNumThreads(1)
 
 # Только после этого — остальные импорты
 import streamlit as st
